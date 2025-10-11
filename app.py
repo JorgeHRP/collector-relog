@@ -1,7 +1,8 @@
 import asyncio
+import os
+import requests
 from telethon import TelegramClient, events
 from flask import Flask, jsonify
-import os, requests
 from dotenv import load_dotenv
 
 # ---------------------------
@@ -9,11 +10,21 @@ from dotenv import load_dotenv
 # ---------------------------
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID"))
+API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 SESSION_NAME = os.getenv("SESSION_NAME", "session_userbot")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
 
+if not API_ID or not API_HASH:
+    raise ValueError("❌ As variáveis API_ID e API_HASH devem estar definidas.")
+try:
+    API_ID = int(API_ID)
+except ValueError:
+    raise ValueError("❌ A variável API_ID precisa ser um número inteiro válido.")
+
+# ---------------------------
+# CLIENTE TELETHON E FLASK
+# ---------------------------
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 app = Flask(__name__)
 
@@ -22,8 +33,11 @@ app = Flask(__name__)
 # ---------------------------
 @app.route("/healthz")
 def health():
-    return jsonify({"status": "running", "webhook": bool(WEBHOOK_URL)}), 200
-
+    return jsonify({
+        "status": "running",
+        "webhook": bool(WEBHOOK_URL),
+        "session_exists": os.path.exists(f"{SESSION_NAME}.session")
+    }), 200
 
 # ---------------------------
 # HANDLER DE NOVAS MENSAGENS
@@ -35,9 +49,6 @@ async def handler(event):
         chat = await event.get_chat()
         sender = await event.get_sender()
 
-        # ---------------------------
-        # DADOS DO CHAT
-        # ---------------------------
         chat_data = {
             "id": getattr(chat, "id", None),
             "title": getattr(chat, "title", None),
@@ -46,9 +57,6 @@ async def handler(event):
             "is_channel": getattr(chat, "broadcast", False),
         }
 
-        # ---------------------------
-        # DADOS DO REMETENTE
-        # ---------------------------
         sender_data = {
             "id": getattr(sender, "id", None),
             "username": getattr(sender, "username", None),
@@ -58,9 +66,6 @@ async def handler(event):
             "is_self": getattr(sender, "is_self", False),
         }
 
-        # ---------------------------
-        # FOTO DE PERFIL DO REMETENTE
-        # ---------------------------
         photo_path = None
         try:
             if sender.photo:
@@ -70,30 +75,18 @@ async def handler(event):
         except Exception:
             photo_path = None
 
-        # ---------------------------
-        # PACOTE COMPLETO DE DADOS
-        # ---------------------------
         data = {
             "message_id": msg.id,
             "text": msg.message,
             "date": msg.date.isoformat(),
             "outgoing": msg.out,
             "chat": chat_data,
-            "sender": {
-                **sender_data,
-                "photo": photo_path,
-            },
+            "sender": {**sender_data, "photo": photo_path},
         }
 
-        # ---------------------------
-        # LOG
-        # ---------------------------
         direction = "📤 Enviado" if msg.out else "📥 Recebido"
         print(f"[{data['date']}] {direction} | {sender_data['username']} -> {data['text']}")
 
-        # ---------------------------
-        # ENVIO PARA O WEBHOOK
-        # ---------------------------
         if WEBHOOK_URL:
             try:
                 requests.post(WEBHOOK_URL, json=data, timeout=8)
@@ -105,18 +98,37 @@ async def handler(event):
 
 
 # ---------------------------
+# LOGIN AUTOMÁTICO (via terminal)
+# ---------------------------
+async def login():
+    if not await client.is_user_authorized():
+        print("📱 Você ainda não está logado no Telegram.")
+        phone = input("👉 Digite seu número de telefone (ex: +55XXXXXXXXXX): ")
+        await client.send_code_request(phone)
+        code = input("🔑 Digite o código que você recebeu no Telegram: ")
+        try:
+            await client.sign_in(phone=phone, code=code)
+            print("✅ Login realizado com sucesso! Sessão salva.")
+        except Exception as e:
+            print("❌ Erro ao fazer login:", e)
+            exit(1)
+    else:
+        print("✅ Sessão existente detectada — já logado.")
+
+
+# ---------------------------
 # INICIALIZAÇÃO DO SISTEMA
 # ---------------------------
 async def start_all():
-    await client.start()
+    await client.connect()
+    await login()
     print("✅ Telethon iniciado e escutando mensagens...")
 
-    # roda Flask e Telethon juntos com Hypercorn
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
-
     config = Config()
     config.bind = ["0.0.0.0:5000"]
+
     await serve(app, config)
 
 
