@@ -25,7 +25,7 @@ except ValueError:
 # ---------------------------
 # CLIENTE TELETHON E FLASK
 # ---------------------------
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+client = TelegramClient("/app/sessoes/session_userbot", API_ID, API_HASH)
 app = Flask(__name__)
 
 # ---------------------------
