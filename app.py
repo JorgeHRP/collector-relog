@@ -4,6 +4,7 @@ import requests
 from telethon import TelegramClient, events
 from flask import Flask, jsonify
 from dotenv import load_dotenv
+from telethon.sessions import StringSession
 
 # ---------------------------
 # CONFIGURAÇÃO
@@ -25,7 +26,7 @@ except ValueError:
 # ---------------------------
 # CLIENTE TELETHON E FLASK
 # ---------------------------
-client = TelegramClient("/app/sessoes/session_userbot", API_ID, API_HASH)
+client = TelegramClient(StringSession(os.getenv("SESSION_STRING")), API_ID, API_HASH)
 app = Flask(__name__)
 
 # ---------------------------
